@@ -1,16 +1,19 @@
-import os, sqlite3, secrets, json
+import os, sqlite3, secrets, json, urllib.request, urllib.error
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field\nfrom agent_engine import generate_draft
+from pydantic import BaseModel, Field
+from agent_engine import generate_draft, generate_telegram_reply
 
 DB_PATH = os.getenv("DB_PATH", "sales_agent.db")
 OWNER_TOKEN = os.getenv("OWNER_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "").split(",") if x.strip()]
 
-app = FastAPI(title="AI Super Salesman API", version="0.1.0",
-              description="Owner-controlled sales operations API. AI/channel adapters are intentionally separate.")
+app = FastAPI(title="AI Super Salesman API", version="0.2.0",
+              description="Owner-controlled sales operations API with safe AI drafts and inbound Telegram replies.")
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS or [], allow_credentials=False,
                    allow_methods=["GET","POST","PATCH"], allow_headers=["Authorization","Content-Type"])
 
@@ -33,7 +36,7 @@ init_db()
 def now(): return datetime.now(timezone.utc).isoformat()
 def audit(action, detail):
     with connect() as c:
-        c.execute("INSERT INTO audit VALUES(?,?,?,?,?)".replace(",?,?,?,?",",?,?,?"), (secrets.token_hex(12),action,detail,now()))
+        c.execute("INSERT INTO audit VALUES(?,?,?,?)",(secrets.token_hex(12),action,detail,now()))
 
 def owner_auth(authorization: Optional[str] = Header(default=None)):
     if not OWNER_TOKEN:
@@ -62,9 +65,15 @@ class OrderIn(BaseModel):
 class AgentRunIn(BaseModel):
     agent: str
     summary: str = Field(default="",max_length=2000)
+class AgentTaskIn(BaseModel):
+    agent: str = Field(min_length=1,max_length=80)
+    task: str = Field(min_length=5,max_length=4000)
 
 @app.get("/health")
-def health(): return {"ok":True,"service":"AI Super Salesman API","version":"0.1.0"}
+def health():
+    return {"ok":True,"service":"AI Super Salesman API","version":"0.2.0",
+            "ai_configured":bool(os.getenv("GROQ_API_KEY")),
+            "telegram_configured":bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET)}
 
 @app.get("/api/owner/overview", dependencies=[Depends(owner_auth)])
 def overview():
@@ -114,19 +123,70 @@ def verify_payment(order_id:str):
         if o["payment_status"]=="verified": return {"id":order_id,"payment_status":"verified","delivery_status":"ready"}
         c.execute("UPDATE orders SET payment_status='verified',verified_at=?,delivery_status='ready' WHERE id=?",(now(),order_id))
     audit("payment.owner_verified",order_id)
-    return {"id":order_id,"payment_status":"verified","delivery_status":"ready","note":"Owner must have checked the actual receiving account before calling this endpoint."}
+    return {"id":order_id,"payment_status":"verified","delivery_status":"ready","note":"Owner must check the actual receiving account first."}
 
 @app.post("/api/agents/runs", dependencies=[Depends(owner_auth)])
 def record_agent_run(run:AgentRunIn):
-    allowed={"Product Builder","Market Research","Marketing","Sales","Customer Success","Finance & Analytics"}
+    allowed=set(AGENTS_FOR_API)
     if run.agent not in allowed: raise HTTPException(400,"Unknown agent")
     i=secrets.token_hex(12)
     with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,run.agent,"recorded",run.summary,now()))
-    audit("agent.run.recorded",run.agent); return {"id":i,"status":"recorded","note":"This records a run; it does not execute an AI agent."}
+    audit("agent.run.recorded",run.agent); return {"id":i,"status":"recorded"}
 
-@app.post("/api/agents/execute", dependencies=[Depends(owner_auth)])\ndef execute_agent(request:AgentTaskIn):\n    allowed={"Product Builder","Market Research","Marketing","Sales","Customer Success","Finance & Analytics"}\n    if request.agent not in allowed: raise HTTPException(400,"Unknown agent")\n    try:\n        result=generate_draft(request.agent,request.task)\n    except ValueError as exc:\n        raise HTTPException(400,str(exc))\n    except RuntimeError as exc:\n        raise HTTPException(503,str(exc))\n    i=secrets.token_hex(12)\n    with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,request.agent,"draft_generated",result[:2000],now()))\n    audit("agent.draft.generated",request.agent)\n    return {"id":i,"agent":request.agent,"status":"draft_generated","draft":result,"requires_owner_approval":True,"note":"Draft only; no message was sent and no external action was taken."}\n\n@app.get("/api/agents/runs", dependencies=[Depends(owner_auth)])
+AGENTS_FOR_API={"Product Builder","Market Research","Marketing","Sales","Customer Success","Finance & Analytics"}
+
+@app.post("/api/agents/execute", dependencies=[Depends(owner_auth)])
+def execute_agent(request:AgentTaskIn):
+    if request.agent not in AGENTS_FOR_API: raise HTTPException(400,"Unknown agent")
+    try: result=generate_draft(request.agent,request.task)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    except RuntimeError as exc: raise HTTPException(503,str(exc))
+    i=secrets.token_hex(12)
+    with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,request.agent,"draft_generated",result[:2000],now()))
+    audit("agent.draft.generated",request.agent)
+    return {"id":i,"agent":request.agent,"status":"draft_generated","draft":result,"requires_owner_approval":True}
+
+@app.get("/api/agents/runs", dependencies=[Depends(owner_auth)])
 def agent_runs():
     with connect() as c: return [dict(x) for x in c.execute("SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT 100")]
 @app.get("/api/audit", dependencies=[Depends(owner_auth)])
 def audit_log():
     with connect() as c: return [dict(x) for x in c.execute("SELECT * FROM audit ORDER BY created_at DESC LIMIT 200")]
+
+def telegram_send(chat_id:int, text:str):
+    url="https://api.telegram.org/bot"+TELEGRAM_BOT_TOKEN+"/sendMessage"
+    payload={"chat_id":chat_id,"text":text[:4000]}
+    req=urllib.request.Request(url,data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type":"application/json"},method="POST")
+    try:
+        with urllib.request.urlopen(req,timeout=20) as response:
+            data=json.loads(response.read().decode("utf-8"))
+        if not data.get("ok"): raise RuntimeError("Telegram sendMessage failed")
+    except (urllib.error.HTTPError, urllib.error.URLError, ValueError) as exc:
+        raise RuntimeError("Telegram API request failed") from exc
+
+@app.post("/api/integrations/telegram/webhook")
+async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Optional[str]=Header(default=None)):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(503,"Telegram integration is not configured.")
+    if not x_telegram_bot_api_secret_token or not secrets.compare_digest(x_telegram_bot_api_secret_token,TELEGRAM_WEBHOOK_SECRET):
+        raise HTTPException(403,"Invalid webhook secret.")
+    update=await request.json()
+    message=update.get("message") or update.get("edited_message")
+    if not message or message.get("from",{}).get("is_bot"): return {"ok":True,"ignored":True}
+    chat=message.get("chat",{})
+    if chat.get("type")!="private": return {"ok":True,"ignored":True}
+    text_in=(message.get("text") or "").strip()
+    if not text_in: return {"ok":True,"ignored":True}
+    if text_in.startswith("/start"):
+        reply="မင်္ဂလာပါ။ AI အကူအညီပေးသူပါ။ ဘယ်ထုတ်ကုန် သို့မဟုတ် ဝန်ဆောင်မှုအကြောင်း သိချင်ပါသလဲ။"
+    else:
+        with connect() as c:
+            rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
+        catalogue="\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
+        try: reply=generate_telegram_reply(text_in,catalogue)
+        except RuntimeError: reply="လက်ရှိ AI ဝန်ဆောင်မှု မရနိုင်သေးပါ။ ခဏနေမှ ထပ်မေးပေးပါ။"
+    try: telegram_send(int(chat["id"]),reply)
+    except RuntimeError: raise HTTPException(502,"Telegram reply could not be sent.")
+    audit("telegram.inbound_reply",str(chat.get("id","")))
+    return {"ok":True,"replied":True}
