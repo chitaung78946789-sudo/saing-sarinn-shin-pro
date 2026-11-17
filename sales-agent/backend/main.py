@@ -274,7 +274,7 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
             previous=c.execute("SELECT role,content FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 10",(chat_id,)).fetchall()
         history=[{"role":x["role"],"content":x["content"]} for x in reversed(previous)]
-        catalogue="\\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
+        catalogue="\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
         try: reply=generate_telegram_reply(text_in,catalogue,history)
         except RuntimeError: reply="လက်ရှိ AI ဝန်ဆောင်မှု မရနိုင်သေးပါ။ ခဏနေမှ ထပ်မေးပေးပါ။"
     try: telegram_send(int(chat["id"]),reply)
