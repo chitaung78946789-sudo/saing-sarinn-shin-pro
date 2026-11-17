@@ -233,7 +233,7 @@ def run_orchestrator(payload:OrchestratorIn):
         c.execute("INSERT INTO orchestration_runs(id,goal,status,outputs_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",(run_id,payload.goal,"running","[]",now(),now()))
     try:
         for idx, role in enumerate(roles):
-            context=json.dumps(outputs,ensure_ascii=False)[-7000:] if outputs else "No previous agent output."
+            context=json.dumps(outputs,ensure_ascii=False)[-2500:] if outputs else "No previous agent output."
             task="Business goal: "+payload.goal+"\nTask: "+instructions[idx]+"\nPrevious agent outputs: "+context+"\nReturn concise Burmese action drafts. Mark assumptions and owner decisions. Do not claim external actions were performed."
             draft=generate_draft(role,task)
             outputs.append({"agent":role,"status":"draft_generated","draft":draft})
