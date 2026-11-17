@@ -24,3 +24,22 @@ Deploy this folder as a Docker web service on a host that supports persistent di
 - Prospect records require a permission/source note. Only contact people through channels and methods permitted by the platform and applicable law.
 - Do not commit real tokens, API keys, passwords, OTPs, or payment credentials.
 - SQLite is a starter database, not a high-availability production database. Add backups, authentication hardening, rate limits, monitoring, and PostgreSQL before broad commercial use.
+
+
+## Owner-triggered AI agent drafts
+
+The backend now includes a draft-only AI adapter in `agent_engine.py`. Configure these as **private environment variables on the backend host**, never in GitHub source files or browser JavaScript:
+
+- `GROQ_API_KEY`: provider API key
+- `AI_MODEL`: defaults to `openai/gpt-oss-20b`
+- `AI_BASE_URL`: defaults to `https://api.groq.com/openai/v1`
+
+Authenticated owner endpoint: `POST /api/agents/execute`
+
+Example JSON body:
+
+```json
+{"agent":"Marketing","task":"Draft a short Burmese product description for an offline shop ledger app. Features: products, stock, sales, credit tracking and JSON backup. Clearly state that it works offline on one device."}
+```
+
+The endpoint generates and records a draft only. It does not search for prospects, send messages, publish content, deploy code, verify payments, or deliver products. External actions require a separate approved integration and owner approval. Provider usage may be rate-limited or billed; check the provider's current terms before use.
