@@ -43,3 +43,14 @@ Example JSON body:
 ```
 
 The endpoint generates and records a draft only. It does not search for prospects, send messages, publish content, deploy code, verify payments, or deliver products. External actions require a separate approved integration and owner approval. Provider usage may be rate-limited or billed; check the provider's current terms before use.
+
+
+## Telegram inbound auto-replies (optional)
+
+Set `TELEGRAM_BOT_TOKEN` and a random `TELEGRAM_WEBHOOK_SECRET` as private backend environment variables. Configure Telegram's webhook URL as:
+
+`https://YOUR-BACKEND-HOST/api/integrations/telegram/webhook`
+
+Use Telegram's official `setWebhook` method with `secret_token` equal to the configured secret; Telegram will send it in the `X-Telegram-Bot-Api-Secret-Token` header. Never put the bot token in GitHub source or the browser.
+
+This adapter replies only to text messages in private chats initiated by the user; it ignores groups and bots. It uses only products whose status is `active`. The current owner API creates products as `draft`, so an owner-only product activation control is still required before product details are advertised. It does not accept payments, verify transfers, or deliver files. Do not use unsolicited messaging.
