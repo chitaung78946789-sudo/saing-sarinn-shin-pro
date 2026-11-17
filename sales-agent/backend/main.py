@@ -269,17 +269,20 @@ async def autopilot_loop():
             if os.getenv("GROQ_API_KEY", "").strip():
                 with connect() as c:
                     last = c.execute(
-                        "SELECT created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
+                        "SELECT status,created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
                     ).fetchone()
                 due = True
                 if last:
                     try:
                         age = datetime.now(timezone.utc) - datetime.fromisoformat(last["created_at"])
-                        due = age.total_seconds() >= 86400
+                        # Successful cycles run daily; failed/incomplete cycles retry hourly.
+                        retry_after = 86400 if last["status"] == "completed_for_review" else 3600
+                        due = age.total_seconds() >= retry_after
                     except Exception:
                         due = True
                 if due:
-                    await asyncio.to_thread(run_orchestrator, OrchestratorIn(goal=AUTOPILOT_GOAL))
+                    result = await asyncio.to_thread(run_orchestrator, OrchestratorIn(goal=AUTOPILOT_GOAL))
+                    print("Autopilot cycle completed:", result.get("agents_completed", 0), "of 6 agents; status=", result.get("status"))
         except Exception as exc:
             # Keep the provider's safe error detail in Render logs so failed draft cycles can be diagnosed.
             detail = getattr(exc, "detail", "")
