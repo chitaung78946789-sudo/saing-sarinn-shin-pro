@@ -22,7 +22,11 @@ def _chat(messages, max_tokens=1200):
     payload = {"model": model, "temperature": 0.3, "max_tokens": max_tokens, "messages": messages}
     req = urllib.request.Request(
         base + "/chat/completions", data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+        headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+            "User-Agent": "SaingSarinnShin-Pro/1.0 (business automation backend)"
+        },
         method="POST"
     )
     try:
