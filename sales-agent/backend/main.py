@@ -273,7 +273,7 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     elif text_in.startswith("/products"):
         with connect() as c:
             rows=c.execute("SELECT name,description,price FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
-        reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\\n"+"\\n".join([f"• {x['name']} — {x['price']} ကျပ်\\n{x['description']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
+        reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\n"+"\n".join([f"• {x['name']} — {x['price']} ကျပ်\n{x['description']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
     else:
         chat_id=str(chat.get("id", ""))
         with connect() as c:
