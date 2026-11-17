@@ -84,7 +84,15 @@ def generate_draft(agent: str, task: str) -> str:
     messages = [{"role":"system","content":system},{"role":"user","content":task}]
     if agent == "ChatGPT Strategy Director":
         return _openai_chat(messages, max_tokens=650)
-    return _chat(messages, max_tokens=400)
+    # Prefer Groq for specialist agents, but fall back to OpenAI when Groq is
+    # rate-limited or rejects the key. This keeps the six-agent cycle usable
+    # when the secondary provider is temporarily unavailable.
+    try:
+        return _chat(messages, max_tokens=400)
+    except RuntimeError:
+        if os.getenv("OPENAI_API_KEY", "").strip():
+            return _openai_chat(messages, max_tokens=400)
+        raise
 
 def generate_telegram_reply(message: str, catalogue: str, history=None, owner=False) -> str:
     if owner:
