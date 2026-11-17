@@ -117,7 +117,7 @@ def generate_telegram_reply(message: str, catalogue: str, history=None, owner=Fa
     for item in (history or [])[-10:]:
         if item.get("role") in ("user","assistant") and isinstance(item.get("content"), str):
             messages.append({"role":item["role"],"content":item["content"][:2000]})
-    user = "BUSINESS CATALOGUE (use only when relevant):\\n" + catalogue + "\\n\\nMESSAGE:\\n" + message[:3000]
+    user = "BUSINESS CATALOGUE (use only when relevant):\n" + catalogue + "\n\nMESSAGE:\n" + message[:3000]
     messages.append({"role":"user","content":user})
     # Prefer the actual OpenAI model for the owner's private assistant; retain Groq as a fallback.
     if owner and os.getenv("OPENAI_API_KEY", "").strip():
