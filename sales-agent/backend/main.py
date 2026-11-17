@@ -269,7 +269,7 @@ AUTOPILOT_GOAL = (
 async def autopilot_loop():
     while True:
         try:
-            if os.getenv("GROQ_API_KEY", "").strip() and os.getenv("OPENAI_API_KEY", "").strip():
+            if os.getenv("OPENAI_API_KEY", "").strip():
                 with connect() as c:
                     last = c.execute(
                         "SELECT status,created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
@@ -304,7 +304,7 @@ def autopilot_status():
             "SELECT id,status,created_at,updated_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return {
-        "enabled": bool(os.getenv("GROQ_API_KEY", "").strip() and os.getenv("OPENAI_API_KEY", "").strip()),
+        "enabled": bool(os.getenv("OPENAI_API_KEY", "").strip()),
         "chatgpt_agent_configured": bool(os.getenv("OPENAI_API_KEY", "").strip()),
         "schedule": "once per 24 hours while the free web service is awake",
         "last_run": dict(row) if row else None,
