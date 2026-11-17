@@ -410,3 +410,5 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
         c.execute("DELETE FROM telegram_history WHERE chat_id=? AND id NOT IN (SELECT id FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 40)",(chat_id,chat_id))
     audit("telegram.inbound_reply",chat_id)
     return {"ok":True,"replied":True}
+
+# Render auto-deploy refresh marker: Telegram owner commands included.
