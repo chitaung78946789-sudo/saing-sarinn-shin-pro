@@ -266,6 +266,7 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     if chat.get("type")!="private": return {"ok":True,"ignored":True}
     text_in=(message.get("text") or "").strip()
     if not text_in: return {"ok":True,"ignored":True}
+    chat_id=str(chat.get("id", ""))
     if text_in.startswith("/start"):
         reply="မင်္ဂလာပါ။ Saing Sarinn Shin AI Bot မှ ကြိုဆိုပါတယ်။ ထုတ်ကုန်သိချင်ရင် /products ကိုနှိပ်ပါ။ အကူအညီအတွက် /help ကိုနှိပ်ပါ။"
     elif text_in.startswith("/help"):
@@ -275,7 +276,6 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             rows=c.execute("SELECT name,description,price FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
         reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\n"+"\n".join([f"• {x['name']} — {x['price']} ကျပ်\n{x['description']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
     else:
-        chat_id=str(chat.get("id", ""))
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
             previous=c.execute("SELECT role,content FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 10",(chat_id,)).fetchall()
