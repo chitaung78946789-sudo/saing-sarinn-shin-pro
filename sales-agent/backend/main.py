@@ -129,10 +129,16 @@ class AgentTaskIn(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"service":"AI Super Salesman API","version":"0.2.0",
-            "ai_configured":bool(os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")),
-            "chatgpt_agent_configured":bool(os.getenv("OPENAI_API_KEY")),
-            "telegram_configured":bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET)}
+    openai_ready = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    telegram_ready = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET)
+    return {"ok":True,"service":"Saing Sarinn Shin API","version":"0.3.0",
+            "ai_configured":bool(os.getenv("GROQ_API_KEY") or openai_ready),
+            "chatgpt_agent_configured":openai_ready,
+            "autopilot_enabled":openai_ready,
+            "owner_auth_configured":bool(OWNER_TOKEN),
+            "telegram_configured":telegram_ready,
+            "database_backend":"sqlite",
+            "storage_note":"SQLite data may not survive replacement of a free web-service instance."}
 
 @app.get("/api/owner/overview", dependencies=[Depends(owner_auth)])
 def overview():
@@ -295,6 +301,8 @@ async def autopilot_loop():
 
 @app.on_event("startup")
 async def start_autopilot():
+    enabled = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    print("Autopilot startup:", "enabled" if enabled else "disabled - OPENAI_API_KEY is missing")
     asyncio.create_task(autopilot_loop())
 
 @app.get("/api/autopilot/status", dependencies=[Depends(owner_auth)])
