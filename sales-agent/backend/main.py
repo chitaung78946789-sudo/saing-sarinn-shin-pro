@@ -281,7 +281,10 @@ async def autopilot_loop():
                 if due:
                     await asyncio.to_thread(run_orchestrator, OrchestratorIn(goal=AUTOPILOT_GOAL))
         except Exception as exc:
-            print("Autopilot cycle failed:", type(exc).__name__)
+            # Keep the provider's safe error detail in Render logs so failed draft cycles can be diagnosed.
+            detail = getattr(exc, "detail", "")
+            status_code = getattr(exc, "status_code", "")
+            print("Autopilot cycle failed:", type(exc).__name__, "status=", status_code, "detail=", str(detail)[:500])
         await asyncio.sleep(3600)
 
 @app.on_event("startup")
