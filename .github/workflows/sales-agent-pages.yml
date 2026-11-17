@@ -1,9 +1,10 @@
-name: Deploy AI Sales Dashboard
+name: Deploy AI Sales Dashboard and Shop Ledger
 on:
   push:
     branches: [main]
     paths:
       - 'sales-agent/**'
+      - 'products/mm-shop-ledger/**'
       - '.github/workflows/sales-agent-pages.yml'
   workflow_dispatch:
 permissions:
@@ -22,9 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Assemble public site
+        run: |
+          mkdir -p _site/shop-ledger
+          cp -R sales-agent/. _site/
+          cp -R products/mm-shop-ledger/. _site/shop-ledger/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: sales-agent
+          path: _site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
