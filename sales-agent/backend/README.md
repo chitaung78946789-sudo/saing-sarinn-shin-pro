@@ -19,7 +19,7 @@ Open `/docs` for the API schema. All `/api/*` routes require `Authorization: Bea
 Deploy this folder as a Docker web service on a host that supports persistent disk. Set `OWNER_TOKEN`, `DB_PATH` to a path on that persistent disk, and `ALLOWED_ORIGINS` to the exact dashboard origin. Free hosts may sleep and may not offer persistent storage; confirm provider limits before use.
 
 ## Important
-- This API does not yet call an LLM, search the web, send outbound messages, or run scheduled agents.
+- The owner-triggered `/api/agents/execute` endpoint calls the configured LLM to create drafts only. It does not search the web, send outbound messages, or run scheduled agents.
 - Payment verification is an owner-only manual action. Verify the actual payment account first; never trust screenshots alone.
 - Prospect records require a permission/source note. Only contact people through channels and methods permitted by the platform and applicable law.
 - Do not commit real tokens, API keys, passwords, OTPs, or payment credentials.
