@@ -127,7 +127,18 @@ def generate_telegram_reply(message: str, catalogue: str, history=None, owner=Fa
             messages.append({"role":item["role"],"content":item["content"][:2000]})
     user = "BUSINESS CATALOGUE (use only when relevant):\n" + catalogue + "\n\nMESSAGE:\n" + message[:3000]
     messages.append({"role":"user","content":user})
-    # Prefer the actual OpenAI model for the owner's private assistant; retain Groq as a fallback.
+    # Prefer OpenAI for the owner's private assistant. For customer replies,
+    # prefer Groq but fall back to OpenAI when Groq is absent or unavailable.
     if owner and os.getenv("OPENAI_API_KEY", "").strip():
-        return _openai_chat(messages, max_tokens=900)
-    return _chat(messages, max_tokens=700)
+        try:
+            return _openai_chat(messages, max_tokens=900)
+        except RuntimeError:
+            if not os.getenv("GROQ_API_KEY", "").strip():
+                raise
+            return _chat(messages, max_tokens=900)
+    try:
+        return _chat(messages, max_tokens=700)
+    except RuntimeError:
+        if os.getenv("OPENAI_API_KEY", "").strip():
+            return _openai_chat(messages, max_tokens=700)
+        raise
