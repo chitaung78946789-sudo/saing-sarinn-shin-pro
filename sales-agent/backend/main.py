@@ -34,6 +34,36 @@ def init_db():
         """)
 init_db()
 
+@app.on_event("startup")
+def configure_telegram_webhook():
+    # Automatically register this service as the bot webhook when credentials exist.
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_WEBHOOK_SECRET:
+        return
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if not base_url:
+        return
+    payload = json.dumps({
+        "url": base_url + "/api/integrations/telegram/webhook",
+        "secret_token": TELEGRAM_WEBHOOK_SECRET,
+        "allowed_updates": ["message", "edited_message"],
+        "drop_pending_updates": False,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setWebhook",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if not result.get("ok"):
+            print("Telegram webhook registration was rejected by Telegram.")
+        else:
+            print("Telegram webhook registered.")
+    except Exception as exc:
+        print("Telegram webhook registration failed:", type(exc).__name__)
+
 def now(): return datetime.now(timezone.utc).isoformat()
 def audit(action, detail):
     with connect() as c:
