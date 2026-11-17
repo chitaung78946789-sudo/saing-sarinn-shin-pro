@@ -9,6 +9,7 @@ from agent_engine import generate_draft, generate_telegram_reply
 DB_PATH = os.getenv("DB_PATH", "sales_agent.db")
 OWNER_TOKEN = os.getenv("OWNER_TOKEN", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_OWNER_IDS = {x.strip() for x in os.getenv("TELEGRAM_OWNER_IDS", "").split(",") if x.strip().isdigit()}
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or (hashlib.sha256(("saing-sarinn-shin-pro:" + TELEGRAM_BOT_TOKEN).encode()).hexdigest() if TELEGRAM_BOT_TOKEN else "")
 ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "").split(",") if x.strip()]
 
@@ -335,6 +336,20 @@ def telegram_send(chat_id:int, text:str):
     except (urllib.error.HTTPError, urllib.error.URLError, ValueError) as exc:
         raise RuntimeError("Telegram API request failed") from exc
 
+
+async def run_telegram_task(chat_id, task_id, goal):
+    try:
+        result=await asyncio.to_thread(run_orchestrator, OrchestratorIn(goal=goal))
+        sections=[]
+        for item in result.get("outputs",[]):
+            sections.append("【"+item.get("agent","Agent")+"】\n"+item.get("draft","")[:850])
+        reply="လုပ်ငန်းပြီးပါပြီ။ Task ID: "+task_id+" | Agent "+str(result.get("agents_completed",0))+"/6\n\n"+"\n\n".join(sections)
+        await asyncio.to_thread(telegram_send,int(chat_id),reply[:3900])
+    except Exception as exc:
+        print("Telegram task failed:",type(exc).__name__)
+        try: await asyncio.to_thread(telegram_send,int(chat_id),"လုပ်ငန်းမပြီးမြောက်ပါ။ "+type(exc).__name__+"။ /task ဖြင့် ပြန်ခိုင်းနိုင်ပါတယ်။")
+        except Exception: pass
+
 @app.post("/api/integrations/telegram/webhook")
 async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Optional[str]=Header(default=None)):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_WEBHOOK_SECRET:
@@ -351,8 +366,30 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     chat_id=str(chat.get("id", ""))
     if text_in.startswith("/start"):
         reply="မင်္ဂလာပါ။ Saing Sarinn Shin AI Bot မှ ကြိုဆိုပါတယ်။ ထုတ်ကုန်သိချင်ရင် /products ကိုနှိပ်ပါ။ အကူအညီအတွက် /help ကိုနှိပ်ပါ။"
+    elif text_in.startswith("/myid"):
+        reply="သင့် Telegram ID: "+str(message.get("from",{}).get("id","မရရှိပါ"))+"\nRender Environment တွင် TELEGRAM_OWNER_IDS အဖြစ် ထည့်ပါ။"
     elif text_in.startswith("/help"):
-        reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ရရှိနိုင်သော ထုတ်ကုန်များကြည့်ရန်၊ သို့မဟုတ် မေးခွန်းကို မြန်မာလို တိုက်ရိုက်မေးနိုင်ပါတယ်။"
+        reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ထုတ်ကုန်များ၊ /myid — Telegram ID၊ /task <အလုပ်အမိန့်> — Agent ၆ ယောက်ကို အလုပ်ခိုင်းရန်၊ /status — အခြေအနေ။"
+    elif text_in.startswith("/task"):
+        sender_id=str(message.get("from",{}).get("id",""))
+        goal=text_in[5:].strip()
+        if sender_id not in TELEGRAM_OWNER_IDS:
+            reply="ပိုင်ရှင်ခွင့်ပြုချက် မရှိသေးပါ။ /myid ကိုနှိပ်ပြီး ID ကို Render Environment ၏ TELEGRAM_OWNER_IDS ထဲထည့်ပါ။"
+        elif len(goal)<10:
+            reply="အသုံးပြုပုံ: /task လုပ်ငန်းအမိန့်ကို ဒီမှာရေးပါ။"
+        elif not os.getenv("GROQ_API_KEY","").strip():
+            reply="AI API မချိတ်ထားပါ။ Render ရှိ GROQ_API_KEY ကိုစစ်ပါ။"
+        else:
+            task_id=secrets.token_hex(8)
+            asyncio.create_task(run_telegram_task(chat_id,task_id,goal))
+            reply="အလုပ်လက်ခံပြီးပါပြီ။ Task ID: "+task_id+"\nAgent ၆ ယောက်ကို ခိုင်းနေပါပြီ။ ပြီးလျှင် ဒီ Telegram ကို ရလဒ်ပို့ပါမယ်။"
+    elif text_in.startswith("/status"):
+        if str(message.get("from",{}).get("id","")) not in TELEGRAM_OWNER_IDS:
+            reply="ပိုင်ရှင်အတွက်သာ အသုံးပြုနိုင်ပါတယ်။"
+        else:
+            with connect() as c:
+                row=c.execute("SELECT id,status,created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1").fetchone()
+            reply="နောက်ဆုံး Agent လုပ်ငန်း: "+(str(dict(row)) if row else "မရှိသေးပါ")
     elif text_in.startswith("/products"):
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
