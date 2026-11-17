@@ -1,4 +1,4 @@
-import os, sqlite3, secrets, json, hashlib, urllib.request, urllib.error
+import os, sqlite3, secrets, json, hashlib, urllib.request, urllib.error, asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
@@ -227,6 +227,59 @@ def run_orchestrator(payload:OrchestratorIn):
         c.execute("UPDATE orchestration_runs SET status=?,updated_at=? WHERE id=?",(status,now(),run_id))
     audit("orchestrator."+status,run_id)
     return {"id":run_id,"status":status,"agents_completed":len(outputs),"outputs":outputs,"requires_owner_approval":True}
+
+
+# Free-tier autopilot: generate one six-agent business-work draft cycle every 24 hours
+# while this web service is awake. It never publishes, spends money, contacts prospects,
+# or marks payments as verified; those actions remain owner-controlled.
+AUTOPILOT_GOAL = (
+    "Continuously identify and design practical, low-cost digital products and small apps "
+    "that can be built and sold online to customers in Myanmar. Produce evidence-aware "
+    "product concepts, validation steps, build specifications, ethical marketing drafts, "
+    "sales workflows, customer support plans, and conservative financial models. "
+    "Clearly label market assumptions and do not invent research, customers, sales, or profit."
+)
+
+async def autopilot_loop():
+    while True:
+        try:
+            if os.getenv("GROQ_API_KEY", "").strip():
+                with connect() as c:
+                    last = c.execute(
+                        "SELECT created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
+                    ).fetchone()
+                due = True
+                if last:
+                    try:
+                        age = datetime.now(timezone.utc) - datetime.fromisoformat(last["created_at"])
+                        due = age.total_seconds() >= 86400
+                    except Exception:
+                        due = True
+                if due:
+                    await asyncio.to_thread(run_orchestrator, OrchestratorIn(goal=AUTOPILOT_GOAL))
+        except Exception as exc:
+            print("Autopilot cycle failed:", type(exc).__name__)
+        await asyncio.sleep(3600)
+
+@app.on_event("startup")
+async def start_autopilot():
+    asyncio.create_task(autopilot_loop())
+
+@app.get("/api/autopilot/status", dependencies=[Depends(owner_auth)])
+def autopilot_status():
+    with connect() as c:
+        row = c.execute(
+            "SELECT id,status,created_at,updated_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return {
+        "enabled": bool(os.getenv("GROQ_API_KEY", "").strip()),
+        "schedule": "once per 24 hours while the free web service is awake",
+        "last_run": dict(row) if row else None,
+        "limitations": [
+            "Free web services may sleep; scheduled work is not guaranteed to run while asleep.",
+            "Agents generate plans and drafts only; they do not publish apps, contact customers, spend money, or collect payments automatically."
+        ]
+    }
 
 @app.get("/api/orchestrator/runs", dependencies=[Depends(owner_auth)])
 def orchestrator_runs():
