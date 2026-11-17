@@ -34,6 +34,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS orchestration_runs(id TEXT PRIMARY KEY,goal TEXT NOT NULL,status TEXT NOT NULL,outputs_json TEXT NOT NULL DEFAULT '[]',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS telegram_history(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),content TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_telegram_history_chat_time ON telegram_history(chat_id,created_at);
+        CREATE TABLE IF NOT EXISTS telegram_owners(user_id TEXT PRIMARY KEY, claimed_at TEXT NOT NULL);
         """)
         # Publish a free, working demo in the Telegram catalogue on fresh databases.
         c.execute(
@@ -324,6 +325,13 @@ def agent_runs():
 def audit_log():
     with connect() as c: return [dict(x) for x in c.execute("SELECT * FROM audit ORDER BY created_at DESC LIMIT 200")]
 
+def telegram_is_owner(user_id: str) -> bool:
+    if user_id in TELEGRAM_OWNER_IDS:
+        return True
+    with connect() as c:
+        return c.execute("SELECT 1 FROM telegram_owners WHERE user_id=?", (user_id,)).fetchone() is not None
+
+
 def telegram_send(chat_id:int, text:str):
     url="https://api.telegram.org/bot"+TELEGRAM_BOT_TOKEN+"/sendMessage"
     payload={"chat_id":chat_id,"text":text[:4000]}
@@ -366,14 +374,25 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     chat_id=str(chat.get("id", ""))
     if text_in.startswith("/start"):
         reply="မင်္ဂလာပါ။ Saing Sarinn Shin AI Bot မှ ကြိုဆိုပါတယ်။ ထုတ်ကုန်သိချင်ရင် /products ကိုနှိပ်ပါ။ အကူအညီအတွက် /help ကိုနှိပ်ပါ။"
+    elif text_in.startswith("/claim"):
+        sender_id=str(message.get("from",{}).get("id",""))
+        supplied=text_in[6:].strip()
+        if not OWNER_TOKEN:
+            reply="ပိုင်ရှင်အတည်ပြုစနစ် မပြင်ဆင်ရသေးပါ။"
+        elif not supplied or not secrets.compare_digest(supplied, OWNER_TOKEN):
+            reply="အတည်ပြုကုဒ် မမှန်ပါ။"
+        else:
+            with connect() as c:
+                c.execute("INSERT OR IGNORE INTO telegram_owners(user_id,claimed_at) VALUES(?,?)",(sender_id,now()))
+            reply="ပိုင်ရှင်အဖြစ် အတည်ပြုပြီးပါပြီ။ ယခု /status သို့မဟုတ် /task ဖြင့် Agent ၆ ယောက်ကို ခိုင်းနိုင်ပါပြီ။"
     elif text_in.startswith("/myid"):
-        reply="သင့် Telegram ID: "+str(message.get("from",{}).get("id","မရရှိပါ"))+"\nRender Environment တွင် TELEGRAM_OWNER_IDS အဖြစ် ထည့်ပါ။"
+        reply="သင့် Telegram ID: "+str(message.get("from",{}).get("id","မရရှိပါ"))
     elif text_in.startswith("/help"):
-        reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ထုတ်ကုန်များ၊ /myid — Telegram ID၊ /task <အလုပ်အမိန့်> — Agent ၆ ယောက်ကို အလုပ်ခိုင်းရန်၊ /status — အခြေအနေ။"
+        reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ထုတ်ကုန်များ၊ /claim <OWNER_TOKEN> — ပိုင်ရှင်အတည်ပြုရန်၊ /task <အလုပ်အမိန့်> — Agent ၆ ယောက်ကို အလုပ်ခိုင်းရန်၊ /status — အခြေအနေ။"
     elif text_in.startswith("/task"):
         sender_id=str(message.get("from",{}).get("id",""))
         goal=text_in[5:].strip()
-        if sender_id not in TELEGRAM_OWNER_IDS:
+        if not telegram_is_owner(sender_id):
             reply="ပိုင်ရှင်ခွင့်ပြုချက် မရှိသေးပါ။ /myid ကိုနှိပ်ပြီး ID ကို Render Environment ၏ TELEGRAM_OWNER_IDS ထဲထည့်ပါ။"
         elif len(goal)<10:
             reply="အသုံးပြုပုံ: /task လုပ်ငန်းအမိန့်ကို ဒီမှာရေးပါ။"
@@ -384,7 +403,7 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             asyncio.create_task(run_telegram_task(chat_id,task_id,goal))
             reply="အလုပ်လက်ခံပြီးပါပြီ။ Task ID: "+task_id+"\nAgent ၆ ယောက်ကို ခိုင်းနေပါပြီ။ ပြီးလျှင် ဒီ Telegram ကို ရလဒ်ပို့ပါမယ်။"
     elif text_in.startswith("/status"):
-        if str(message.get("from",{}).get("id","")) not in TELEGRAM_OWNER_IDS:
+        if not telegram_is_owner(str(message.get("from",{}).get("id",""))):
             reply="ပိုင်ရှင်အတွက်သာ အသုံးပြုနိုင်ပါတယ်။"
         else:
             with connect() as c:
@@ -405,7 +424,8 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     try: telegram_send(int(chat["id"]),reply)
     except RuntimeError: raise HTTPException(502,"Telegram reply could not be sent.")
     with connect() as c:
-        c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"user",text_in,now()))
+        safe_text="[owner claim command]" if text_in.startswith("/claim") else text_in
+        c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"user",safe_text,now()))
         c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"assistant",reply,now()))
         c.execute("DELETE FROM telegram_history WHERE chat_id=? AND id NOT IN (SELECT id FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 40)",(chat_id,chat_id))
     audit("telegram.inbound_reply",chat_id)
