@@ -1,9 +1,16 @@
-# AI Super Salesman
+# AI Super Salesman — Owner Dashboard MVP
 
-This folder will contain the owner dashboard and agent workflow for the digital-products business.
+A phone-friendly static owner dashboard for the digital-products business.
 
-Read the system design and rollout requirements in [AI_SUPER_SALESMAN_PLAN.md](../AI_SUPER_SALESMAN_PLAN.md).
+## Included
+- Six-agent role board and integration status
+- Product catalogue, prospect register, and order register
+- Owner-only manual payment confirmation gate
+- Activity log and browser localStorage persistence
 
-The system is not yet an autonomous live sales service. A secure backend, database, server-side AI key, approved channel integrations, and owner payment-verification workflow must be configured and tested before live automation.
+## Current limitations
+This is an MVP interface, not a live autonomous agent system. It does not contact prospects, run AI models, send messages, verify payments with a provider, or deliver files automatically. Those require a secure server-side backend, database, AI provider credentials stored as server secrets, approved channel APIs, and payment/delivery integrations.
 
-Never place API keys, bot tokens, passwords, OTPs, or payment credentials in this public repository.
+Data currently stays in this browser on this device. Export/backup and authentication are not yet implemented. Do not store secrets or sensitive payment data here.
+
+See ../AI_SUPER_SALESMAN_PLAN.md for architecture, safety boundaries, and rollout stages.
