@@ -92,6 +92,15 @@ def add_product(p:ProductIn):
     with connect() as c: c.execute("INSERT INTO products VALUES(?,?,?,?,?,?,?)",(i,p.name,p.description,p.price,p.demo_url,"draft",now()))
     audit("product.created",i); return {"id":i,"status":"draft"}
 
+
+@app.post("/api/products/{product_id}/activate", dependencies=[Depends(owner_auth)])
+def activate_product(product_id:str):
+    with connect() as db:
+        cur=db.execute("UPDATE products SET status='active' WHERE id=?",(product_id,))
+        if cur.rowcount==0: raise HTTPException(404,"Product not found")
+    audit("product.activated",product_id)
+    return {"id":product_id,"status":"active","note":"The product can now be shown in inbound Telegram replies."}
+
 @app.get("/api/leads", dependencies=[Depends(owner_auth)])
 def leads():
     with connect() as c: return [dict(x) for x in c.execute("SELECT * FROM leads ORDER BY created_at DESC")]
