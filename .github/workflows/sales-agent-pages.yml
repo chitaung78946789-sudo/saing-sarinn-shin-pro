@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'sales.html'
       - 'sales-agent/**'
       - 'products/mm-shop-ledger/**'
       - '.github/workflows/sales-agent-pages.yml'
@@ -27,6 +28,7 @@ jobs:
         run: |
           mkdir -p _site/shop-ledger
           cp -R sales-agent/. _site/
+          cp sales.html _site/sales.html
           cp -R products/mm-shop-ledger/. _site/shop-ledger/
       - uses: actions/upload-pages-artifact@v3
         with:
