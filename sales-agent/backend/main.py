@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field\nfrom agent_engine import generate_draft
 
 DB_PATH = os.getenv("DB_PATH", "sales_agent.db")
 OWNER_TOKEN = os.getenv("OWNER_TOKEN", "")
@@ -124,7 +124,7 @@ def record_agent_run(run:AgentRunIn):
     with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,run.agent,"recorded",run.summary,now()))
     audit("agent.run.recorded",run.agent); return {"id":i,"status":"recorded","note":"This records a run; it does not execute an AI agent."}
 
-@app.get("/api/agents/runs", dependencies=[Depends(owner_auth)])
+@app.post("/api/agents/execute", dependencies=[Depends(owner_auth)])\ndef execute_agent(request:AgentTaskIn):\n    allowed={"Product Builder","Market Research","Marketing","Sales","Customer Success","Finance & Analytics"}\n    if request.agent not in allowed: raise HTTPException(400,"Unknown agent")\n    try:\n        result=generate_draft(request.agent,request.task)\n    except ValueError as exc:\n        raise HTTPException(400,str(exc))\n    except RuntimeError as exc:\n        raise HTTPException(503,str(exc))\n    i=secrets.token_hex(12)\n    with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,request.agent,"draft_generated",result[:2000],now()))\n    audit("agent.draft.generated",request.agent)\n    return {"id":i,"agent":request.agent,"status":"draft_generated","draft":result,"requires_owner_approval":True,"note":"Draft only; no message was sent and no external action was taken."}\n\n@app.get("/api/agents/runs", dependencies=[Depends(owner_auth)])
 def agent_runs():
     with connect() as c: return [dict(x) for x in c.execute("SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT 100")]
 @app.get("/api/audit", dependencies=[Depends(owner_auth)])
