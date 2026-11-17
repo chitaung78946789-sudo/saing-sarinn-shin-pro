@@ -1,0 +1,19 @@
+{
+  "name": "Saing Sarinn Shin Pro",
+  "short_name": "Saing Sarinn",
+  "description": "မြန်မာဘာသာ AI လုပ်ငန်းစီမံခန့်ခွဲမှု Dashboard",
+  "lang": "my",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#101827",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
