@@ -34,6 +34,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS telegram_history(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),content TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_telegram_history_chat_time ON telegram_history(chat_id,created_at);
         """)
+        # Publish a free, working demo in the Telegram catalogue on fresh databases.
+        c.execute(
+            "INSERT OR IGNORE INTO products(id,name,description,price,demo_url,status,created_at) VALUES(?,?,?,?,?,?,?)",
+            ("shop-ledger-free-demo", "ဆိုင်စာရင်း Pro — အခမဲ့ Demo",
+             "မြန်မာဆိုင်ငယ်များအတွက် အော့ဖ်လိုင်း အရောင်း၊ ကုန်ပစ္စည်းလက်ကျန်၊ အကြွေးစာရင်းနှင့် Backup App။ အခြေခံ Demo အခမဲ့အသုံးပြုနိုင်သည်။ ဆိုင်အမည်/လိုဂိုဖြင့် ပြင်ဆင်ပေးခြင်းကို ဈေးနှုန်းမေးမြန်းနိုင်သည်။",
+             0, "https://saing-sarinn-shin-dashboard.onrender.com/shop-ledger/", "active",
+             datetime.now(timezone.utc).isoformat())
+        )
 init_db()
 
 @app.on_event("startup")
@@ -326,8 +334,8 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
         reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ရရှိနိုင်သော ထုတ်ကုန်များကြည့်ရန်၊ သို့မဟုတ် မေးခွန်းကို မြန်မာလို တိုက်ရိုက်မေးနိုင်ပါတယ်။"
     elif text_in.startswith("/products"):
         with connect() as c:
-            rows=c.execute("SELECT name,description,price FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
-        reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\n"+"\n".join([f"• {x['name']} — {x['price']} ကျပ်\n{x['description']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
+            rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
+        reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\\n"+"\\n".join([f"• {x['name']} — {'အခမဲ့' if x['price']==0 else str(x['price'])+' ကျပ်'}\\n{x['description']}\\nDemo: {x['demo_url']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
     else:
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
