@@ -1,4 +1,4 @@
-import os, sqlite3, secrets, json, urllib.request, urllib.error
+import os, sqlite3, secrets, json, hashlib, urllib.request, urllib.error
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
@@ -9,7 +9,7 @@ from agent_engine import generate_draft, generate_telegram_reply
 DB_PATH = os.getenv("DB_PATH", "sales_agent.db")
 OWNER_TOKEN = os.getenv("OWNER_TOKEN", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or (hashlib.sha256(("saing-sarinn-shin-pro:" + TELEGRAM_BOT_TOKEN).encode()).hexdigest() if TELEGRAM_BOT_TOKEN else "")
 ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "").split(",") if x.strip()]
 
 app = FastAPI(title="AI Super Salesman API", version="0.2.0",
