@@ -1,35 +1,12 @@
-name: Deploy Shop Ledger PWA
+name: Legacy Shop Ledger Pages (manual only)
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'products/mm-shop-ledger/**'
-      - '.github/workflows/shop-ledger-pages.yml'
   workflow_dispatch:
 permissions:
   contents: read
   pages: write
   id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: true
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  note:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - name: Upload site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: products/mm-shop-ledger
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - run: echo "Shop Ledger is deployed by the unified sales-agent-pages workflow. Do not run a separate Pages deployment."
