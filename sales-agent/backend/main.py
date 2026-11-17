@@ -378,30 +378,39 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     message=update.get("message") or update.get("edited_message")
     if not message or message.get("from",{}).get("is_bot"): return {"ok":True,"ignored":True}
     chat=message.get("chat",{})
-    if chat.get("type")!="private": return {"ok":True,"ignored":True}
+    chat_type=chat.get("type","")
+    if chat_type not in ("private","group","supergroup"): return {"ok":True,"ignored":True}
     text_in=(message.get("text") or "").strip()
     if not text_in: return {"ok":True,"ignored":True}
+    command=text_in.split(maxsplit=1)[0].split("@")[0] if text_in.startswith("/") else ""
+    # In groups, only explicit bot commands are handled; ordinary group conversation is ignored.
+    if chat_type in ("group","supergroup") and command not in ("/task","/status","/help","/myid"):
+        return {"ok":True,"ignored":True}
     chat_id=str(chat.get("id", ""))
-    if text_in.startswith("/start"):
+    if command=="/start":
         reply="မင်္ဂလာပါ။ Saing Sarinn Shin AI Bot မှ ကြိုဆိုပါတယ်။ ထုတ်ကုန်သိချင်ရင် /products ကိုနှိပ်ပါ။ အကူအညီအတွက် /help ကိုနှိပ်ပါ။"
-    elif text_in.startswith("/claim"):
-        sender_id=str(message.get("from",{}).get("id",""))
-        supplied=text_in[6:].strip()
-        if not OWNER_TOKEN:
-            reply="ပိုင်ရှင်အတည်ပြုစနစ် မပြင်ဆင်ရသေးပါ။"
-        elif not supplied or not secrets.compare_digest(supplied, OWNER_TOKEN):
-            reply="အတည်ပြုကုဒ် မမှန်ပါ။"
+    elif command=="/claim":
+        if chat_type!="private":
+            reply="လုံခြုံရေးအတွက် /claim ကို Bot နဲ့ သီးသန့် Chat မှာသာ လုပ်ပါ။"
         else:
-            with connect() as c:
-                c.execute("INSERT OR IGNORE INTO telegram_owners(user_id,claimed_at) VALUES(?,?)",(sender_id,now()))
-            reply="ပိုင်ရှင်အဖြစ် အတည်ပြုပြီးပါပြီ။ ယခု /status သို့မဟုတ် /task ဖြင့် Agent ၆ ယောက်ကို ခိုင်းနိုင်ပါပြီ။"
-    elif text_in.startswith("/myid"):
+            sender_id=str(message.get("from",{}).get("id",""))
+            supplied=text_in[len(text_in.split(maxsplit=1)[0]):].strip()
+            if not OWNER_TOKEN:
+                reply="ပိုင်ရှင်အတည်ပြုစနစ် မပြင်ဆင်ရသေးပါ။"
+            elif not supplied or not secrets.compare_digest(supplied, OWNER_TOKEN):
+                reply="အတည်ပြုကုဒ် မမှန်ပါ။"
+            else:
+                with connect() as c:
+                    c.execute("INSERT OR IGNORE INTO telegram_owners(user_id,claimed_at) VALUES(?,?)",(sender_id,now()))
+                reply="ပိုင်ရှင်အဖြစ် အတည်ပြုပြီးပါပြီ။ ယခု /status သို့မဟုတ် /task ဖြင့် Agent ၆ ယောက်ကို ခိုင်းနိုင်ပါပြီ။"
+    elif command=="/myid":
         reply="သင့် Telegram ID: "+str(message.get("from",{}).get("id","မရရှိပါ"))
-    elif text_in.startswith("/help"):
+    elif command=="/help":
         reply="မင်္ဂလာပါ။ /start — စတင်ရန်၊ /products — ထုတ်ကုန်များ၊ /claim <OWNER_TOKEN> — ပိုင်ရှင်အတည်ပြုရန်၊ /task <အလုပ်အမိန့်> — Agent ၆ ယောက်ကို အလုပ်ခိုင်းရန်၊ /status — အခြေအနေ။"
-    elif text_in.startswith("/task"):
+    elif command=="/task":
         sender_id=str(message.get("from",{}).get("id",""))
-        goal=text_in[5:].strip()
+        parts=text_in.split(maxsplit=1)
+        goal=parts[1].strip() if len(parts)>1 else ""
         if not telegram_is_owner(sender_id):
             reply="ပိုင်ရှင်ခွင့်ပြုချက် မရှိသေးပါ။ /myid ကိုနှိပ်ပြီး ID ကို Render Environment ၏ TELEGRAM_OWNER_IDS ထဲထည့်ပါ။"
         elif len(goal)<10:
@@ -412,18 +421,18 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             task_id=secrets.token_hex(8)
             asyncio.create_task(run_telegram_task(chat_id,task_id,goal))
             reply="အလုပ်လက်ခံပြီးပါပြီ။ Task ID: "+task_id+"\nAgent ၆ ယောက်ကို ခိုင်းနေပါပြီ။ ပြီးလျှင် ဒီ Telegram ကို ရလဒ်ပို့ပါမယ်။"
-    elif text_in.startswith("/status"):
+    elif command=="/status":
         if not telegram_is_owner(str(message.get("from",{}).get("id",""))):
             reply="ပိုင်ရှင်အတွက်သာ အသုံးပြုနိုင်ပါတယ်။"
         else:
             with connect() as c:
                 row=c.execute("SELECT id,status,created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1").fetchone()
             reply="နောက်ဆုံး Agent လုပ်ငန်း: "+(str(dict(row)) if row else "မရှိသေးပါ")
-    elif text_in.startswith("/products"):
+    elif command=="/products":
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
         reply="လက်ရှိ ရရှိနိုင်သော ထုတ်ကုန်များ:\n"+"\n".join([f"• {x['name']} — {'အခမဲ့' if x['price']==0 else str(x['price'])+' ကျပ်'}\n{x['description']}\nDemo: {x['demo_url']}" for x in rows]) if rows else "လက်ရှိ ရောင်းချရန် အသက်သွင်းထားသော ထုတ်ကုန် မရှိသေးပါ။"
-    else:
+    elif chat_type=="private":
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
             previous=c.execute("SELECT role,content FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 10",(chat_id,)).fetchall()
@@ -431,10 +440,12 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
         catalogue="\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
         try: reply=generate_telegram_reply(text_in,catalogue,history,owner=telegram_is_owner(str(message.get("from",{}).get("id",""))))
         except RuntimeError: reply="လက်ရှိ AI ဝန်ဆောင်မှု မရနိုင်သေးပါ။ ခဏနေမှ ထပ်မေးပေးပါ။"
+    else:
+        return {"ok":True,"ignored":True}
     try: telegram_send(int(chat["id"]),reply)
     except RuntimeError: raise HTTPException(502,"Telegram reply could not be sent.")
     with connect() as c:
-        safe_text="[owner claim command]" if text_in.startswith("/claim") else text_in
+        safe_text="[owner claim command]" if command=="/claim" else text_in
         c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"user",safe_text,now()))
         c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"assistant",reply,now()))
         c.execute("DELETE FROM telegram_history WHERE chat_id=? AND id NOT IN (SELECT id FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 40)",(chat_id,chat_id))
