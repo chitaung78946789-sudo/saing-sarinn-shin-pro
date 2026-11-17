@@ -131,6 +131,7 @@ class AgentTaskIn(BaseModel):
 def health():
     return {"ok":True,"service":"AI Super Salesman API","version":"0.2.0",
             "ai_configured":bool(os.getenv("GROQ_API_KEY")),
+            "chatgpt_agent_configured":bool(os.getenv("OPENAI_API_KEY")),
             "telegram_configured":bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET)}
 
 @app.get("/api/owner/overview", dependencies=[Depends(owner_auth)])
@@ -200,7 +201,7 @@ def record_agent_run(run:AgentRunIn):
     with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,run.agent,"recorded",run.summary,now()))
     audit("agent.run.recorded",run.agent); return {"id":i,"status":"recorded"}
 
-AGENTS_FOR_API={"Product Builder","Market Research","Marketing","Sales","Customer Success","Finance & Analytics"}
+AGENTS_FOR_API={"ChatGPT Strategy Director","Product Builder","Market Research & Marketing","Sales","Customer Success","Finance & Analytics"}
 
 @app.post("/api/agents/execute", dependencies=[Depends(owner_auth)])
 def execute_agent(request:AgentTaskIn):
@@ -218,13 +219,13 @@ class OrchestratorIn(BaseModel):
 
 @app.post("/api/orchestrator/run", dependencies=[Depends(owner_auth)])
 def run_orchestrator(payload:OrchestratorIn):
-    if not os.getenv("GROQ_API_KEY", "").strip():
-        raise HTTPException(503,"Set GROQ_API_KEY privately on Render before starting the six-agent system.")
-    roles = ["Product Builder", "Market Research", "Marketing", "Sales", "Customer Success", "Finance & Analytics"]
+    if not os.getenv("GROQ_API_KEY", "").strip() or not os.getenv("OPENAI_API_KEY", "").strip():
+        raise HTTPException(503,"Set GROQ_API_KEY and OPENAI_API_KEY privately on Render before starting the six-agent system.")
+    roles = ["ChatGPT Strategy Director", "Product Builder", "Market Research & Marketing", "Sales", "Customer Success", "Finance & Analytics"]
     instructions = [
+        "Set the business priority, coordinate all five specialist outputs, identify the best near-term revenue opportunity, and provide a concise owner decision brief.",
         "Define the product offer, deliverables, and acceptance checks.",
-        "Research customer needs, competitors, market assumptions, and unknowns.",
-        "Create truthful positioning, channel plan, and promotional drafts.",
+        "Research customer needs and competitors from supplied facts, label unknowns, and create truthful positioning and promotional drafts.",
         "Create ethical inquiry handling, qualification, and order scripts.",
         "Create payment-verification, delivery, and support checklists.",
         "Create cost, revenue, profit, and KPI tracking; never invent figures."
@@ -268,7 +269,7 @@ AUTOPILOT_GOAL = (
 async def autopilot_loop():
     while True:
         try:
-            if os.getenv("GROQ_API_KEY", "").strip():
+            if os.getenv("GROQ_API_KEY", "").strip() and os.getenv("OPENAI_API_KEY", "").strip():
                 with connect() as c:
                     last = c.execute(
                         "SELECT status,created_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
@@ -303,7 +304,8 @@ def autopilot_status():
             "SELECT id,status,created_at,updated_at FROM orchestration_runs ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return {
-        "enabled": bool(os.getenv("GROQ_API_KEY", "").strip()),
+        "enabled": bool(os.getenv("GROQ_API_KEY", "").strip() and os.getenv("OPENAI_API_KEY", "").strip()),
+        "chatgpt_agent_configured": bool(os.getenv("OPENAI_API_KEY", "").strip()),
         "schedule": "once per 24 hours while the free web service is awake",
         "last_run": dict(row) if row else None,
         "limitations": [
@@ -396,8 +398,8 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             reply="ပိုင်ရှင်ခွင့်ပြုချက် မရှိသေးပါ။ /myid ကိုနှိပ်ပြီး ID ကို Render Environment ၏ TELEGRAM_OWNER_IDS ထဲထည့်ပါ။"
         elif len(goal)<10:
             reply="အသုံးပြုပုံ: /task လုပ်ငန်းအမိန့်ကို ဒီမှာရေးပါ။"
-        elif not os.getenv("GROQ_API_KEY","").strip():
-            reply="AI API မချိတ်ထားပါ။ Render ရှိ GROQ_API_KEY ကိုစစ်ပါ။"
+        elif not os.getenv("GROQ_API_KEY","").strip() or not os.getenv("OPENAI_API_KEY","").strip():
+            reply="AI ချိတ်ဆက်မှု မပြည့်စုံသေးပါ။ Groq နှင့် OpenAI API key နှစ်ခုလုံး လိုအပ်ပါတယ်။"
         else:
             task_id=secrets.token_hex(8)
             asyncio.create_task(run_telegram_task(chat_id,task_id,goal))
