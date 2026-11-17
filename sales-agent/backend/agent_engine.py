@@ -17,7 +17,7 @@ def _openai_chat(messages, max_tokens=900):
     key = os.getenv("OPENAI_API_KEY", "").strip()
     if not key:
         raise RuntimeError("ChatGPT agent is not configured. Add OPENAI_API_KEY privately to Render.")
-    model = os.getenv("OPENAI_MODEL", "gpt-6-luna").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-6-astra").strip()
     payload = {"model": model, "input": messages, "max_output_tokens": max_tokens}
     req = urllib.request.Request(
         "https://api.openai.com/v1/responses",
