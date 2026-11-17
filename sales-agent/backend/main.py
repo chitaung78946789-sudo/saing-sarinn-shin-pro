@@ -42,6 +42,21 @@ def init_db():
              0, "https://saing-sarinn-shin-dashboard.onrender.com/shop-ledger/", "active",
              datetime.now(timezone.utc).isoformat())
         )
+        # Publicly listed Mong Hsu retail prospects for manual, permission-based demos.
+        # These are research leads only; no messages have been sent and contact details must be verified.
+        research_leads = [
+            ("public-monghsu-asia-grocery", "အာရှဆန်နှင့် ကုန်စုံလက်လီလက်ကား", "+95 9 254 641 976"),
+            ("public-monghsu-nay-chi", "Nay Chi Store", "+95 9 699 441 966"),
+            ("public-monghsu-ma-sanda", "Ma Sanda အလှကုန်", "+95 9 40060 2012"),
+        ]
+        for lead_id, lead_name, contact in research_leads:
+            c.execute(
+                "INSERT OR IGNORE INTO leads(id,name,contact,interest,source_url,permission_note,status,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (lead_id, lead_name, contact, "ဆိုင်စာရင်း Pro အခမဲ့ Demo",
+                 "Public business listing; verify before use",
+                 "သုတေသနစာရင်းသာ။ မဆက်သွယ်ရသေးပါ။ လူကိုယ်တိုင် Demo ပြပြီး ဆက်သွယ်ခွင့်ရမှသာ ဆက်သွယ်ရန်။",
+                 "research_only", datetime.now(timezone.utc).isoformat())
+            )
 init_db()
 
 @app.on_event("startup")
