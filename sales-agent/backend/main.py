@@ -130,7 +130,7 @@ class AgentTaskIn(BaseModel):
 @app.get("/health")
 def health():
     return {"ok":True,"service":"AI Super Salesman API","version":"0.2.0",
-            "ai_configured":bool(os.getenv("GROQ_API_KEY")),
+            "ai_configured":bool(os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")),
             "chatgpt_agent_configured":bool(os.getenv("OPENAI_API_KEY")),
             "telegram_configured":bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET)}
 
@@ -219,8 +219,8 @@ class OrchestratorIn(BaseModel):
 
 @app.post("/api/orchestrator/run", dependencies=[Depends(owner_auth)])
 def run_orchestrator(payload:OrchestratorIn):
-    if not os.getenv("GROQ_API_KEY", "").strip() or not os.getenv("OPENAI_API_KEY", "").strip():
-        raise HTTPException(503,"Set GROQ_API_KEY and OPENAI_API_KEY privately on Render before starting the six-agent system.")
+    if not os.getenv("OPENAI_API_KEY", "").strip():
+        raise HTTPException(503,"Set OPENAI_API_KEY privately on Render before starting the six-agent system. GROQ_API_KEY is optional.")
     roles = ["ChatGPT Strategy Director", "Product Builder", "Market Research & Marketing", "Sales", "Customer Success", "Finance & Analytics"]
     instructions = [
         "Set the business priority, coordinate all five specialist outputs, identify the best near-term revenue opportunity, and provide a concise owner decision brief.",
@@ -398,8 +398,8 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
             reply="ပိုင်ရှင်ခွင့်ပြုချက် မရှိသေးပါ။ /myid ကိုနှိပ်ပြီး ID ကို Render Environment ၏ TELEGRAM_OWNER_IDS ထဲထည့်ပါ။"
         elif len(goal)<10:
             reply="အသုံးပြုပုံ: /task လုပ်ငန်းအမိန့်ကို ဒီမှာရေးပါ။"
-        elif not os.getenv("GROQ_API_KEY","").strip() or not os.getenv("OPENAI_API_KEY","").strip():
-            reply="AI ချိတ်ဆက်မှု မပြည့်စုံသေးပါ။ Groq နှင့် OpenAI API key နှစ်ခုလုံး လိုအပ်ပါတယ်။"
+        elif not os.getenv("OPENAI_API_KEY","").strip():
+            reply="OpenAI API ချိတ်ဆက်မှု မရှိသေးပါ။ OPENAI_API_KEY ကို Render မှာ လျှို့ဝှက်စွာ ထည့်ပေးပါ။ Groq Key မလိုအပ်ပါ။"
         else:
             task_id=secrets.token_hex(8)
             asyncio.create_task(run_telegram_task(chat_id,task_id,goal))
