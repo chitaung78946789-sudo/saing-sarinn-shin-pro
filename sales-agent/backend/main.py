@@ -30,6 +30,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,buyer TEXT NOT NULL,product_id TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),payment_method TEXT NOT NULL DEFAULT '',payment_status TEXT NOT NULL DEFAULT 'pending',verified_at TEXT,delivery_status TEXT NOT NULL DEFAULT 'locked',created_at TEXT NOT NULL,FOREIGN KEY(product_id) REFERENCES products(id));
         CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,agent TEXT NOT NULL,status TEXT NOT NULL,summary TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,action TEXT NOT NULL,detail TEXT NOT NULL,created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS orchestration_runs(id TEXT PRIMARY KEY,goal TEXT NOT NULL,status TEXT NOT NULL,outputs_json TEXT NOT NULL DEFAULT '[]',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
         """)
 init_db()
 
@@ -154,6 +155,52 @@ def execute_agent(request:AgentTaskIn):
     with connect() as c: c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(i,request.agent,"draft_generated",result[:2000],now()))
     audit("agent.draft.generated",request.agent)
     return {"id":i,"agent":request.agent,"status":"draft_generated","draft":result,"requires_owner_approval":True}
+
+class OrchestratorIn(BaseModel):
+    goal: str = Field(min_length=10,max_length=3000)
+
+@app.post("/api/orchestrator/run", dependencies=[Depends(owner_auth)])
+def run_orchestrator(payload:OrchestratorIn):
+    if not os.getenv("GROQ_API_KEY", "").strip():
+        raise HTTPException(503,"Set GROQ_API_KEY privately on Render before starting the six-agent system.")
+    roles = ["Product Builder", "Market Research", "Marketing", "Sales", "Customer Success", "Finance & Analytics"]
+    instructions = [
+        "Define the product offer, deliverables, and acceptance checks.",
+        "Research customer needs, competitors, market assumptions, and unknowns.",
+        "Create truthful positioning, channel plan, and promotional drafts.",
+        "Create ethical inquiry handling, qualification, and order scripts.",
+        "Create payment-verification, delivery, and support checklists.",
+        "Create cost, revenue, profit, and KPI tracking; never invent figures."
+    ]
+    run_id=secrets.token_hex(12)
+    outputs=[]
+    with connect() as c:
+        c.execute("INSERT INTO orchestration_runs(id,goal,status,outputs_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",(run_id,payload.goal,"running","[]",now(),now()))
+    try:
+        for idx, role in enumerate(roles):
+            context=json.dumps(outputs,ensure_ascii=False)[-7000:] if outputs else "No previous agent output."
+            task="Business goal: "+payload.goal+"\nTask: "+instructions[idx]+"\nPrevious agent outputs: "+context+"\nReturn concise Burmese action drafts. Mark assumptions and owner decisions. Do not claim external actions were performed."
+            draft=generate_draft(role,task)
+            outputs.append({"agent":role,"status":"draft_generated","draft":draft})
+            with connect() as c:
+                c.execute("INSERT INTO agent_runs VALUES(?,?,?,?,?)",(secrets.token_hex(12),role,"orchestrated_draft",draft[:2000],now()))
+                c.execute("UPDATE orchestration_runs SET outputs_json=?,updated_at=? WHERE id=?",(json.dumps(outputs,ensure_ascii=False),now(),run_id))
+        status="completed_for_review"
+    except RuntimeError as exc:
+        status="failed"
+        with connect() as c:
+            c.execute("UPDATE orchestration_runs SET outputs_json=?,status=?,updated_at=? WHERE id=?",(json.dumps(outputs,ensure_ascii=False),status,now(),run_id))
+        raise HTTPException(503,str(exc))
+    with connect() as c:
+        c.execute("UPDATE orchestration_runs SET status=?,updated_at=? WHERE id=?",(status,now(),run_id))
+    audit("orchestrator."+status,run_id)
+    return {"id":run_id,"status":status,"agents_completed":len(outputs),"outputs":outputs,"requires_owner_approval":True}
+
+@app.get("/api/orchestrator/runs", dependencies=[Depends(owner_auth)])
+def orchestrator_runs():
+    with connect() as c:
+        rows=c.execute("SELECT * FROM orchestration_runs ORDER BY created_at DESC LIMIT 50").fetchall()
+    return [{**dict(x),"outputs":json.loads(x["outputs_json"])} for x in rows]
 
 @app.get("/api/agents/runs", dependencies=[Depends(owner_auth)])
 def agent_runs():
