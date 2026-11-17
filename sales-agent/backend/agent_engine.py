@@ -5,13 +5,45 @@ import urllib.error
 import urllib.request
 
 AGENTS = {
+    "ChatGPT Strategy Director": "Act as the chief strategist: coordinate the five specialist teams, challenge weak assumptions, prioritize profitable and realistic work, and give the owner a clear decision brief.",
     "Product Builder": "Plan digital products, app features, acceptance criteria, and test plans.",
-    "Market Research": "Analyze supplied market facts; label assumptions and unknowns; suggest ethical research steps.",
-    "Marketing": "Draft truthful product positioning, ads, demos, and content. Never invent features or testimonials.",
+    "Market Research & Marketing": "Analyze supplied market facts; label assumptions and unknowns; suggest ethical research steps; draft truthful positioning, ads, demos, and content without inventing features or testimonials.",
     "Sales": "Draft respectful replies for people who have contacted the business or explicitly opted in.",
     "Customer Success": "Draft order, delivery, and support checklists. Never claim payment is verified.",
     "Finance & Analytics": "Analyze supplied figures, show calculations, distinguish revenue from profit."
 }
+
+def _openai_chat(messages, max_tokens=900):
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("ChatGPT agent is not configured. Add OPENAI_API_KEY privately to Render.")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna").strip()
+    payload = {"model": model, "input": messages, "max_output_tokens": max_tokens}
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        if isinstance(data.get("output_text"), str) and data["output_text"].strip():
+            return data["output_text"].strip()
+        parts = []
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for content in item.get("content", []):
+                    if content.get("type") == "output_text":
+                        parts.append(content.get("text", ""))
+        result = "\n".join(x for x in parts if x).strip()
+        if not result:
+            raise RuntimeError("OpenAI returned no text output.")
+        return result
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:400]
+        raise RuntimeError("OpenAI API error (" + str(exc.code) + "): " + detail)
+
 
 def _chat(messages, max_tokens=1200):
     key = os.getenv("GROQ_API_KEY", "").strip()
@@ -49,7 +81,10 @@ def generate_draft(agent: str, task: str) -> str:
         "Never claim to have searched, contacted people, deployed software, accepted payment, or delivered anything. "
         "Be concise and return only the most useful next actions."
     )
-    return _chat([{"role":"system","content":system},{"role":"user","content":task}], max_tokens=400)
+    messages = [{"role":"system","content":system},{"role":"user","content":task}]
+    if agent == "ChatGPT Strategy Director":
+        return _openai_chat(messages, max_tokens=650)
+    return _chat(messages, max_tokens=400)
 
 def generate_telegram_reply(message: str, catalogue: str, history=None) -> str:
     system = (
