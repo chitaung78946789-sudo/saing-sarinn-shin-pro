@@ -31,6 +31,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,agent TEXT NOT NULL,status TEXT NOT NULL,summary TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,action TEXT NOT NULL,detail TEXT NOT NULL,created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS orchestration_runs(id TEXT PRIMARY KEY,goal TEXT NOT NULL,status TEXT NOT NULL,outputs_json TEXT NOT NULL DEFAULT '[]',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS telegram_history(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),content TEXT NOT NULL,created_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_telegram_history_chat_time ON telegram_history(chat_id,created_at);
         """)
 init_db()
 
@@ -267,12 +269,19 @@ async def telegram_webhook(request:Request, x_telegram_bot_api_secret_token:Opti
     if text_in.startswith("/start"):
         reply="မင်္ဂလာပါ။ AI အကူအညီပေးသူပါ။ ဘယ်ထုတ်ကုန် သို့မဟုတ် ဝန်ဆောင်မှုအကြောင်း သိချင်ပါသလဲ။"
     else:
+        chat_id=str(chat.get("id", ""))
         with connect() as c:
             rows=c.execute("SELECT name,description,price,demo_url FROM products WHERE status='active' ORDER BY created_at DESC LIMIT 30").fetchall()
-        catalogue="\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
-        try: reply=generate_telegram_reply(text_in,catalogue)
+            previous=c.execute("SELECT role,content FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 10",(chat_id,)).fetchall()
+        history=[{"role":x["role"],"content":x["content"]} for x in reversed(previous)]
+        catalogue="\\n".join([f"- {x['name']}: {x['description']} | ဈေးနှုန်း {x['price']} ကျပ် | {x['demo_url']}" for x in rows]) or "လက်ရှိ အတည်ပြုပြီး Active ထုတ်ကုန်မရှိသေးပါ။ ဈေးနှုန်း သို့မဟုတ် ပစ္စည်းကို မခန့်မှန်းပါနှင့်။"
+        try: reply=generate_telegram_reply(text_in,catalogue,history)
         except RuntimeError: reply="လက်ရှိ AI ဝန်ဆောင်မှု မရနိုင်သေးပါ။ ခဏနေမှ ထပ်မေးပေးပါ။"
     try: telegram_send(int(chat["id"]),reply)
     except RuntimeError: raise HTTPException(502,"Telegram reply could not be sent.")
-    audit("telegram.inbound_reply",str(chat.get("id","")))
+    with connect() as c:
+        c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"user",text_in,now()))
+        c.execute("INSERT INTO telegram_history VALUES(?,?,?,?,?)",(secrets.token_hex(12),chat_id,"assistant",reply,now()))
+        c.execute("DELETE FROM telegram_history WHERE chat_id=? AND id NOT IN (SELECT id FROM telegram_history WHERE chat_id=? ORDER BY created_at DESC LIMIT 40)",(chat_id,chat_id))
+    audit("telegram.inbound_reply",chat_id)
     return {"ok":True,"replied":True}
